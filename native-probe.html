@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RelayTrace Native Probe — ready</title>
+<style>body{font:16px system-ui;max-width:1000px;margin:30px auto;padding:20px;background:#111827;color:#eee}button,a{font:inherit;padding:12px;margin:6px;color:inherit}button{background:#334155;border:1px solid #94a3b8}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{display:block}</style>
+<h1>Native Chrome default-options streaming test</h1>
+<p>No Firebase SDK, configuration, App Check, or cloud API is loaded by this page. Only synthetic text is used. This diagnostic is not Firebase SDK inference proof.</p>
+<p>One request: “Say OK.” · default model options · 180-second total deadline · first non-empty stream chunk timing.</p>
+<button id="defaults">Run native default streaming test (180s)</button><button id="cancel" disabled>Cancel native test</button>
+<p id="live" role="status">Ready</p><pre id="result" role="status">Not tested</pre><a href="/">Return to Firebase SDK test</a>
+<script type="module">
+let active = null;
+const result = document.querySelector('#result');
+const live = document.querySelector('#live');
+const buttons = [document.querySelector('#defaults')];
+const cancel = document.querySelector('#cancel');
+function draw(report) { result.textContent = JSON.stringify(report,null,2); }
+async function run() {
+  if (active) return;
+  const controller = new AbortController(); active = controller;
+  let session; let reader; let phase = 'create';
+  const started = performance.now();
+  const report = {diagnostic:'native Chrome only — not Firebase SDK proof',mode:'defaults-streaming',status:'running',
+    prompt:'Say OK.',timeoutMs:180000,startEpochMs:Date.now(),firstChunkLatencyMs:null,firstChunkFromClickMs:null,chunks:[],
+    clickedVisibility:document.visibilityState,clickedFocus:document.hasFocus(),
+    clickedUserActivation:navigator.userActivation?.isActive ?? null,events:[]};
+  function record(event, detail) {report.events.push({event,ms:Math.round(performance.now()-started),visibility:document.visibilityState,...detail});draw(report);}
+  const visibility = () => record('visibilitychange'); document.addEventListener('visibilitychange',visibility);
+  const tick = setInterval(()=>{live.textContent=`${phase}: ${Math.round((performance.now()-started)/1000)}s elapsed; visibility=${document.visibilityState}; focus=${document.hasFocus()}`;},500);
+  const deadline = setTimeout(()=>controller.abort(new Error(`Native ${phase} timed out at the 180-second total deadline`)),report.timeoutMs);
+  async function bounded(operation) {
+    controller.signal.throwIfAborted();
+    let abort;
+    const stop = new Promise((_,reject)=>{
+      abort=()=>reject(controller.signal.reason ?? new Error('Cancelled'));
+      controller.signal.addEventListener('abort',abort,{once:true});
+
+    });
+    try {return await Promise.race([operation(),stop]);}
+    finally {controller.signal.removeEventListener('abort',abort);}
+  }
+  buttons.forEach(b=>b.disabled=true);cancel.disabled=false;
+  try {
+    if (!globalThis.LanguageModel) throw new Error('Native LanguageModel API is absent');
+    document.title='RelayTrace Native Probe — create';record('create:start');
+    const pending=LanguageModel.create({signal:controller.signal});
+    pending.then(value=>{if(controller.signal.aborted)value.destroy();},()=>{});
+    session=await bounded(()=>pending);
+    report.createMs=Math.round(performance.now()-started);record('create:done');
+    phase='first-chunk';document.title='RelayTrace Native Probe — first-chunk';record('stream:start');
+    const promptStarted=performance.now();
+    reader=session.promptStreaming(report.prompt,{signal:controller.signal}).getReader();
+    for(;;){
+      const {value,done}=await bounded(()=>reader.read());
+      if(done)break;
+      if(typeof value!=='string')throw new Error('Unexpected non-text stream chunk');
+      if(value.length && report.firstChunkLatencyMs===null){
+        report.firstChunkLatencyMs=Math.round(performance.now()-promptStarted);
+        report.firstChunkFromClickMs=Math.round(performance.now()-started);
+        phase='streaming';document.title='RelayTrace Native Probe — streaming';record('first-chunk');
+      }
+      report.chunks.push(value);draw(report);
+    }
+    report.streamMs=Math.round(performance.now()-promptStarted);record('stream:done');
+    report.answer=report.chunks.join('');
+    if(typeof report.answer!=='string'||!report.answer.trim())throw new Error('Native response is empty');
+    report.status='passed';document.title='RelayTrace Native Probe — PASSED';
+  } catch(error) {
+    report.status='failed';report.failedStage=phase;report.error=error instanceof Error?error.message:String(error);
+    document.title=`RelayTrace Native Probe — FAILED ${phase}`;
+  } finally {
+    clearTimeout(deadline);
+    try {reader?.releaseLock();}catch{}
+    try {session?.destroy();} catch {report.cleanupWarning='Native destroy failed';}
+    controller.abort();clearInterval(tick);document.removeEventListener('visibilitychange',visibility);
+    report.elapsedMs=Math.round(performance.now()-started);report.endEpochMs=Date.now();draw(report);
+    live.textContent=`${report.status}: ${phase}; elapsed ${report.elapsedMs}ms`;
+    active=null;buttons.forEach(b=>b.disabled=false);cancel.disabled=true;
+  }
+}
+cancel.onclick=()=>active?.abort(new Error('Native diagnostic cancelled'));
+buttons[0].onclick=()=>run();
+</script></html>

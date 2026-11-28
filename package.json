@@ -1,0 +1,47 @@
+{
+  "name": "relaytrace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "verify:firebase": "node scripts/verify-firebase.mjs",
+    "verify:browser": "node scripts/verify-browser.mjs",
+    "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
+    "test:product": "node scripts/test-product-browser.mjs",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-relaytrace --non-interactive \"node scripts/test-firestore-rules.mjs\"",
+    "test:cancellation": "node scripts/test-capture-cancellation.mjs",
+    "test:receipt-ui": "node scripts/test-receipt-ui.mjs"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "firebase": "13.3.0",
+    "idb": "^8.0.4",
+    "lucide-react": "^1.73.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-router-dom": "^7.18.5",
+    "tailwindcss": "^4.3.5",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
+    "@playwright/test": "1.65.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "fake-indexeddb": "^6.2.8",
+    "firebase-tools": "^15.36.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.8",
+    "vitest": "5.1.0"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "1.14.7"
+  },
+  "license": "Apache-2.0",
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  }
+}

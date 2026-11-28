@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owner(uid) { return request.auth != null && request.auth.uid == uid; }
+    function validFields(f) {
+      return f.keys().hasOnly(['observation','attempted','changed','result','unresolved','next_check'])
+        && f.keys().hasAll(['observation','attempted','changed','result','unresolved','next_check'])
+        && f.observation is list && f.attempted is list && f.changed is list
+        && f.result is list && f.unresolved is list && f.next_check is list;
+    }
+    match /users/{uid}/projects/{projectId} {
+      allow read, delete: if owner(uid);
+      allow create, update: if owner(uid)
+        && request.resource.data.keys().hasOnly(['ownerId','id','title'])
+        && request.resource.data.ownerId == uid && request.resource.data.id == projectId
+        && request.resource.data.title is string && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 120;
+      match /capsules/{capsuleId} {
+        function validCapsule() {
+          let d = request.resource.data;
+          return d.keys().hasOnly(['id','projectId','parentId','createdAt','confirmedAt','originalNote','fields','source','ownerId','approvedAt'])
+            && d.ownerId == uid && d.id == capsuleId && d.projectId == projectId
+            && (d.parentId == null || d.parentId is string)
+            && d.createdAt is string && d.confirmedAt is string && d.approvedAt is string
+            && d.originalNote is string && d.originalNote.size() <= 20000
+            && d.source in ['manual','on_device'] && validFields(d.fields);
+        }
+        allow read, delete: if owner(uid);
+        allow create: if owner(uid) && validCapsule();
+        allow update: if owner(uid) && validCapsule()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['approvedAt']);
+      }
+    }
+    match /users/{uid}/approvals/{approvalId} {
+      allow read, delete: if owner(uid);
+      allow create: if owner(uid)
+        && request.resource.data.keys().hasOnly(['ownerId','projectId','approvedAt','payloadHash'])
+        && request.resource.data.ownerId == uid && request.resource.data.projectId is string
+        && request.resource.data.approvedAt is string
+        && request.resource.data.payloadHash.matches('^[a-f0-9]{64}$');
+      allow update: if owner(uid) && request.resource.data == resource.data;
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}

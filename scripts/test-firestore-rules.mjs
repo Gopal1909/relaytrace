@@ -1,0 +1,38 @@
+import { readFile } from 'node:fs/promises';
+import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+const endpoint = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8088';
+if (!/^(127\.0\.0\.1|localhost):\d+$/.test(endpoint)) throw new Error('Refusing nonlocal rules-test endpoint');
+const [host, port] = endpoint.split(':');
+const env = await initializeTestEnvironment({ projectId: 'demo-relaytrace', firestore: { host, port: Number(port), rules: await readFile('firestore.rules', 'utf8') } });
+let checks = 0;
+try {
+  const owner = env.authenticatedContext('synthetic-owner').firestore();
+  const other = env.authenticatedContext('synthetic-other').firestore();
+  const guest = env.unauthenticatedContext().firestore();
+  const path = 'users/synthetic-owner/projects/project1';
+  const project = { ownerId: 'synthetic-owner', id: 'project1', title: 'Synthetic bench' };
+  await assertSucceeds(setDoc(doc(owner, path), project)); checks++;
+  await assertSucceeds(getDoc(doc(owner, path))); checks++;
+  await assertFails(getDoc(doc(other, path))); checks++;
+  await assertFails(getDoc(doc(guest, path))); checks++;
+  await assertFails(setDoc(doc(other, path), project)); checks++;
+  await assertFails(setDoc(doc(owner, path), { ...project, photo: 'not allowed' })); checks++;
+  const fields = { observation: ['Synthetic fact'], attempted: [], changed: [], result: [], unresolved: [], next_check: [] };
+  const capsule = { id: 'capsule1', projectId: 'project1', parentId: null, createdAt: '2026-11-16T00:00:00.000Z', confirmedAt: '2026-11-16T00:00:00.000Z', approvedAt: '2026-11-16T00:00:00.000Z', originalNote: 'Synthetic note', fields, source: 'manual', ownerId: 'synthetic-owner' };
+  const capsulePath = path + '/capsules/capsule1';
+  await assertSucceeds(setDoc(doc(owner, capsulePath), capsule)); checks++;
+  await assertFails(updateDoc(doc(owner, capsulePath), { originalNote: 'Changed immutable evidence' })); checks++;
+  await assertFails(setDoc(doc(owner, capsulePath), { ...capsule, photo: 'private' })); checks++;
+  await assertSucceeds(updateDoc(doc(owner, capsulePath), { approvedAt: '2026-11-17T00:00:00.000Z' })); checks++;
+  await assertFails(getDoc(doc(other, capsulePath))); checks++;
+  await assertFails(setDoc(doc(owner, path + '/capsules/bad'), { ...capsule, id: 'bad', source: 'in_cloud' })); checks++;
+  const approvalPath = 'users/synthetic-owner/approvals/approval1';
+  const approval = { ownerId: 'synthetic-owner', projectId: 'project1', approvedAt: capsule.approvedAt, payloadHash: 'a'.repeat(64) };
+  await assertSucceeds(setDoc(doc(owner, approvalPath), approval)); checks++;
+  await assertSucceeds(setDoc(doc(owner, approvalPath), approval)); checks++;
+  await assertFails(updateDoc(doc(owner, approvalPath), { payloadHash: 'b'.repeat(64) })); checks++;
+  await assertFails(getDoc(doc(other, approvalPath))); checks++;
+  await assertFails(setDoc(doc(guest, 'anything/private'), { value: 'Synthetic' })); checks++;
+  console.log(JSON.stringify({ passed: true, checks, endpoint, project: 'demo-relaytrace', productionWrites: false }));
+} finally { await env.cleanup(); }
